@@ -324,21 +324,26 @@ function eval_AST(model::BaseModelicaModel)
             start_value = get_class_modification_value(declaration.modification, "start")
             fixed_value = get_class_modification_value(declaration.modification, "fixed")
 
+            var = variable_map[name]
+            idx = findfirst(v -> ModelingToolkit.getname(v) == name, vars)
+
             if !isnothing(start_value)
-                var = variable_map[name]
                 # If fixed=true, use setdefault for initial condition
                 # Otherwise use setguess for guess value
                 is_fixed = !isnothing(fixed_value) &&
                            (fixed_value === true || fixed_value == true)
                 if is_fixed
                     variable_map[name] = ModelingToolkit.setdefault(var, start_value)
-                    idx = findfirst(v -> ModelingToolkit.getname(v) == name, vars)
                     vars[idx] = variable_map[name]
                 else
                     variable_map[name] = ModelingToolkit.setguess(var, start_value)
-                    idx = findfirst(v -> ModelingToolkit.getname(v) == name, vars)
                     vars[idx] = variable_map[name]
                 end
+            else
+                # MTK v11 requires all unknowns to have either an initial condition or a guess
+                # Provide a default guess of 0.0 for variables without start values
+                variable_map[name] = ModelingToolkit.setguess(var, 0.0)
+                vars[idx] = variable_map[name]
             end
         end
     end
@@ -347,6 +352,17 @@ function eval_AST(model::BaseModelicaModel)
     # This ensures parameters that reference other parameters get concrete numeric values
     for (param, value) in parameter_val_map
         parameter_val_map[param] = substitute(value, parameter_val_map)
+    end
+
+    # Pass 4: Set defaults on parameters using MTK v11 API
+    for i in eachindex(pars)
+        param = pars[i]
+        if haskey(parameter_val_map, param)
+            pars[i] = ModelingToolkit.setdefault(param, parameter_val_map[param])
+            # Update variable_map to use the parameter with default
+            param_name = ModelingToolkit.getname(param)
+            variable_map[param_name] = pars[i]
+        end
     end
 
     # Flatten equations - some equations (like if-equations) return lists
@@ -382,11 +398,18 @@ function eval_AST(model::BaseModelicaModel)
         init_eqs_dict[key] = substitute(value, parameter_val_map)
     end
 
-    #vars,pars,eqs, init_eqs_dict
+    # Set defaults on variables from initial equations using MTK v11 API
+    for (var, value) in init_eqs_dict
+        var_name = ModelingToolkit.getname(var)
+        idx = findfirst(v -> ModelingToolkit.getname(v) == var_name, vars)
+        if !isnothing(idx)
+            vars[idx] = ModelingToolkit.setdefault(vars[idx], value)
+            variable_map[var_name] = vars[idx]
+        end
+    end
 
-    defs = merge(init_eqs_dict, parameter_val_map)
     real_eqs = [eq for eq in eqs] # Weird type stuff
-    @named sys = System(real_eqs, t; __legacy_defaults__ = defs)
+    @named sys = System(real_eqs, t)
     mtkcompile(sys)
 end
 

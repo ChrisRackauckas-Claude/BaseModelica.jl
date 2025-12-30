@@ -192,13 +192,12 @@ function create_odeproblem(filename::String; parser::Symbol=:antlr, u0=[], kwarg
         end
 
         # Merge annotation defaults with user kwargs (user kwargs take precedence)
-        # MTK v11 requires build_initializeprob=false when using legacy defaults
-        prob = ODEProblem(sys, u0, tspan; build_initializeprob=false, annotation_kwargs..., kwargs...)
+        prob = ODEProblem(sys, u0, tspan; annotation_kwargs..., kwargs...)
         return prob
     else
         # Default time span if no annotation
         tspan = (0.0, 1.0)
-        prob = ODEProblem(sys, u0, tspan; build_initializeprob=false, kwargs...)
+        prob = ODEProblem(sys, u0, tspan; kwargs...)
         return prob
     end
 end
